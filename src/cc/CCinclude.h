@@ -369,6 +369,8 @@ bool myGetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlo
 /// @param[out] currentheight current chain height
 bool NSPV_myGetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlock, int32_t &txheight, int32_t &currentheight);
 
+bool FindCCtx(uint256 &txid, CTransaction& tx, struct CCcontract_info *cp);
+
 /// decodes char array in hex encoding to byte array
 int32_t decode_hex(uint8_t *bytes, int32_t n, char *hex);
 
