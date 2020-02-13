@@ -905,9 +905,9 @@ UniValue OracleFund(const CPubKey& pk, int64_t txfee,uint256 oracletxid)
     if (GetLatestTimestamp(komodo_currentheight())<PUBKEY_SPOOFING_FIX_ACTIVATION)
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "oraclesfund not active yet, activation scheduled for July 15th");
     if (myGetTransaction(oracletxid,tx,hashBlock)==0 || (numvouts=tx.vout.size())<=0)
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
     if (DecodeOraclesCreateOpRet(tx.vout[numvouts-1].scriptPubKey,name,desc,format)!='C')
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
     cp = CCinit(&C,EVAL_ORACLES);
     if ( txfee == 0 )
         txfee = 10000;
@@ -930,9 +930,9 @@ UniValue OracleRegister(const CPubKey& pk, int64_t txfee,uint256 oracletxid,int6
     if ( txfee == 0 )
         txfee = 10000;
     if (myGetTransaction(oracletxid,tx,hashBlock)==0 || (numvouts=tx.vout.size())<=0)
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
     if (DecodeOraclesCreateOpRet(tx.vout[numvouts-1].scriptPubKey,name,desc,format)!='C')
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
     if ( datafee < txfee )
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "datafee must be txfee or more");
     mypk = pk.IsValid()?pk:pubkey2pk(Mypubkey());
@@ -959,9 +959,9 @@ UniValue OracleSubscribe(const CPubKey& pk, int64_t txfee,uint256 oracletxid,CPu
     if ( txfee == 0 )
         txfee = 10000;
     if (myGetTransaction(oracletxid,tx,hashBlock)==0 || (numvouts=tx.vout.size())<=0)
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
     if (DecodeOraclesCreateOpRet(tx.vout[numvouts-1].scriptPubKey,name,desc,format)!='C')
-        CCERR_RESULT("oraclecc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
+        CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
     mypk = pk.IsValid()?pk:pubkey2pk(Mypubkey());
     markerpubkey = CCtxidaddr(markeraddr,oracletxid);
     if ( AddNormalinputs(mtx,mypk,amount + 2*txfee,64,pk.IsValid()) > 0 )
