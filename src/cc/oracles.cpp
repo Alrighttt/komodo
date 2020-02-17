@@ -179,8 +179,8 @@ CPubKey OracleBatonPk(char *batonaddr,struct CCcontract_info *cp)
         cp->unspendablepriv2[i] = (priv[i] ^ cp->CCpriv[i]);
     while ( secp256k1_ec_seckey_verify(ctx,cp->unspendablepriv2) == 0 )
     {
-        for (i=0; i<32; i++)
-            fprintf(stderr,"%02x",cp->unspendablepriv2[i]);
+        // for (i=0; i<32; i++)
+        //     fprintf(stderr,"%02x",cp->unspendablepriv2[i]);
         fprintf(stderr," invalid privkey\n");
         if ( secp256k1_ec_privkey_tweak_add(ctx,cp->unspendablepriv2,priv) != 0 )
             break;
