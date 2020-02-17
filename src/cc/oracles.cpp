@@ -209,7 +209,7 @@ int64_t OracleCurrentDatafee(uint256 reforacletxid,char *markeraddr,CPubKey publ
         txid = it->first.txhash;
         vout = (int32_t)it->first.index;
         height = (int32_t)it->second.blockHeight;
-        if ( FindCCtx(txid,tx,cp) && (numvouts= tx.vout.size()) > 0 )
+        if ( FetchCCtx(txid,tx,cp) && (numvouts= tx.vout.size()) > 0 )
         {
             if ( DecodeOraclesOpRet(tx.vout[numvouts-1].scriptPubKey,oracletxid,pk,dfee) == 'R' )
             {
@@ -266,8 +266,10 @@ static uint256 myIs_baton_spentinmempool(uint256 batontxid,int32_t batonvout)
 
 uint256 OracleBatonUtxo(uint64_t txfee,struct CCcontract_info *cp,uint256 reforacletxid,char *batonaddr,CPubKey publisher,std::vector <uint8_t> &dataarg)
 {
-    uint256 txid,oracletxid,hashBlock,btxid,batontxid = zeroid; int64_t dfee; int32_t dheight=0,vout,height,numvouts; CTransaction tx; CPubKey pk; uint8_t *ptr; std::vector<uint8_t> vopret,data;
+    uint256 txid,oracletxid,hashBlock,btxid,batontxid = zeroid; int64_t dfee; int32_t dheight=0,vout,height,numvouts;
+    CTransaction tx; CPubKey pk; uint8_t *ptr; std::vector<uint8_t> vopret,data;
     std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs;
+
     SetCCunspents(unspentOutputs,batonaddr,true);
     for (std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >::const_iterator it=unspentOutputs.begin(); it!=unspentOutputs.end(); it++)
     {
@@ -279,7 +281,7 @@ uint256 OracleBatonUtxo(uint64_t txfee,struct CCcontract_info *cp,uint256 refora
             fprintf(stderr,"it->second.satoshis %llu != %llu txfee\n",(long long)it->second.satoshis,(long long)txfee);
             continue;
         }
-        if ( FindCCtx(txid,tx,cp) && (numvouts= tx.vout.size()) > 0 )
+        if ( FetchCCtx(txid,tx,cp) && (numvouts= tx.vout.size()) > 0 )
         {
             GetOpReturnData(tx.vout[numvouts-1].scriptPubKey,vopret);
             if ( vopret.size() > 2 )
@@ -321,7 +323,7 @@ uint256 OraclesBatontxid(uint256 reforacletxid,CPubKey refpk)
         txid = it->first.txhash;
         //fprintf(stderr,"check %s\n",uint256_str(str,txid));
         height = (int32_t)it->second.blockHeight;
-        if ( FindCCtx(txid,regtx,cp) )
+        if ( FetchCCtx(txid,regtx,cp) )
         {
             if ( regtx.vout.size() > 0 && DecodeOraclesOpRet(regtx.vout[regtx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R' && oracletxid == reforacletxid && pk == refpk )
             {
@@ -761,8 +763,10 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
 
 int64_t AddOracleInputs(struct CCcontract_info *cp,CMutableTransaction &mtx,uint256 oracletxid,CPubKey pk,int64_t total,int32_t maxinputs)
 {
-    char coinaddr[64],funcid; int64_t nValue,price,totalinputs = 0; uint256 tmporacletxid,tmpbatontxid,txid,hashBlock; std::vector<uint8_t> origpubkey,data; CTransaction vintx; int32_t numvouts,vout,n = 0;
+    char coinaddr[64],funcid; int64_t nValue,price,totalinputs = 0; uint256 tmporacletxid,tmpbatontxid,txid,hashBlock;
+    std::vector<uint8_t> origpubkey,data; CTransaction vintx; int32_t numvouts,vout,n = 0;
     std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs; CPubKey tmppk; int64_t tmpnum;
+
     GetCCaddress(cp,coinaddr,pk);
     SetCCunspents(unspentOutputs,coinaddr,true);
     //fprintf(stderr,"addoracleinputs from (%s)\n",coinaddr);
@@ -775,7 +779,7 @@ int64_t AddOracleInputs(struct CCcontract_info *cp,CMutableTransaction &mtx,uint
         {
             if ((funcid=DecodeOraclesOpRet(vintx.vout[numvouts].scriptPubKey,tmporacletxid,tmppk,tmpnum))!=0 && (funcid=='S' || funcid=='D'))
             {
-                if (funcid=='D' && DecodeOraclesData(vintx.vout[numvouts].scriptPubKey,tmporacletxid,tmpbatontxid,tmppk,data)==0)
+                if (funcid=='D' && ValidateCCtx(vintx,cp) && DecodeOraclesData(vintx.vout[numvouts].scriptPubKey,tmporacletxid,tmpbatontxid,tmppk,data)==0)
                     fprintf(stderr,"invalid oraclesdata transaction \n");
                 else if (tmporacletxid==oracletxid)
                 {  
@@ -1007,7 +1011,7 @@ UniValue OracleData(const CPubKey& pk, int64_t txfee,uint256 oracletxid,std::vec
         if ( batontxid != zeroid ) // not impossible to fail, but hopefully a very rare event
             mtx.vin.push_back(CTxIn(batontxid,1,CScript()));
         else fprintf(stderr,"warning: couldnt find baton utxo %s\n",batonaddr);
-        if ( (inputs= AddOracleInputs(cp,mtx,oracletxid,mypk,datafee,60)) > 0 )
+        if ( (inputs= AddOracleInputs(cp,mtx,oracletxid,mypk,datafee,60)) >= datafee )
         {
             if ( inputs > datafee )
                 CCchange = (inputs - datafee);
@@ -1048,7 +1052,7 @@ UniValue OracleDataSample(uint256 reforacletxid,uint256 txid)
     {
         if ( DecodeOraclesCreateOpRet(oracletx.vout[numvouts-1].scriptPubKey,name,description,format) == 'C' )
         {
-            if ( FindCCtx(txid,tx,cp) && (numvouts=tx.vout.size()) > 0 )
+            if ( FetchCCtx(txid,tx,cp) && (numvouts=tx.vout.size()) > 0 )
             {
                 if ( DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
                 {
@@ -1088,7 +1092,7 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
             {
                 const CTransaction &txmempool = *it;
                 const uint256 &hash = txmempool.GetHash();
-                if ((numvouts=txmempool.vout.size())>0 && txmempool.vout[1].nValue==CC_MARKER_VALUE && DecodeOraclesData(txmempool.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
+                if ((numvouts=txmempool.vout.size())>0 && ValidateCCtx(txmempool,cp) && txmempool.vout[1].nValue==CC_MARKER_VALUE && DecodeOraclesData(txmempool.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
                 {
                     Getscriptaddress(addr,txmempool.vout[1].scriptPubKey);
                     if (strcmp(addr,batonaddr)!=0) continue;
@@ -1111,7 +1115,7 @@ UniValue OracleDataSamples(uint256 reforacletxid,char* batonaddr,int32_t num)
                 for (std::vector<uint256>::const_iterator it=txids.end()-1; it!=txids.begin(); it--)
                 {
                     txid=*it;
-                    if (FindCCtx(txid,tx,cp) && (numvouts=tx.vout.size()) > 0 )
+                    if (FetchCCtx(txid,tx,cp) && (numvouts=tx.vout.size()) > 0 )
                     {
                         if ( tx.vout[1].nValue==CC_MARKER_VALUE && DecodeOraclesData(tx.vout[numvouts-1].scriptPubKey,oracletxid,btxid,pk,data) == 'D' && reforacletxid == oracletxid )
                         {
@@ -1168,7 +1172,7 @@ UniValue OracleInfo(uint256 origtxid)
             {
                 txid = it->first.txhash;
                 height = (int32_t)it->second.blockHeight;
-                if ( FindCCtx(txid,tx,cp) && tx.vout.size() > 0 &&
+                if ( FetchCCtx(txid,tx,cp) && tx.vout.size() > 0 &&
                     DecodeOraclesOpRet(tx.vout[tx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R' && oracletxid == origtxid )
                 {
                     if (publishers.find(pk)==publishers.end() || height>publishers[pk].second)
@@ -1180,7 +1184,7 @@ UniValue OracleInfo(uint256 origtxid)
             }
             for (std::map<CPubKey,std::pair<uint256,int32_t>>::iterator it = publishers.begin(); it != publishers.end(); ++it)
             {
-                if ( FindCCtx(it->second.first,tx,cp) && DecodeOraclesOpRet(tx.vout[tx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R')
+                if ( FetchCCtx(it->second.first,tx,cp) && DecodeOraclesOpRet(tx.vout[tx.vout.size()-1].scriptPubKey,oracletxid,pk,datafee) == 'R')
                 {
                     UniValue obj(UniValue::VOBJ);
                     obj.push_back(Pair("publisher",pubkey33_str(str,(uint8_t *)pk.begin())));
