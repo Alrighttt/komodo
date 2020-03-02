@@ -95,6 +95,7 @@
 extern int32_t komodo_get_current_height();
 #define PUBKEY_SPOOFING_FIX_ACTIVATION 1563148800
 #define CC_MARKER_VALUE 10000
+#define CC_TXFEE 10000
 
 // start of consensus code
 CScript EncodeOraclesCreateOpRet(uint8_t funcid,std::string name,std::string description,std::string format)
@@ -265,7 +266,7 @@ static uint256 myIs_baton_spentinmempool(uint256 batontxid,int32_t batonvout)
     return(batontxid);
 }
 
-uint256 OracleBatonUtxo(uint64_t txfee,struct CCcontract_info *cp,uint256 reforacletxid,char *batonaddr,CPubKey publisher,std::vector <uint8_t> &dataarg)
+uint256 OracleBatonUtxo(uint64_t value,struct CCcontract_info *cp,uint256 reforacletxid,char *batonaddr,CPubKey publisher,std::vector <uint8_t> &dataarg)
 {
     uint256 txid,oracletxid,hashBlock,btxid,batontxid = zeroid; int64_t dfee; int32_t dheight=0,vout,height,numvouts;
     CTransaction tx; CPubKey pk; uint8_t *ptr; std::vector<uint8_t> vopret,data;
@@ -277,9 +278,9 @@ uint256 OracleBatonUtxo(uint64_t txfee,struct CCcontract_info *cp,uint256 refora
         txid = it->first.txhash;
         vout = (int32_t)it->first.index;
         height = (int32_t)it->second.blockHeight;
-        if ( it->second.satoshis != txfee )
+        if ( it->second.satoshis != value )
         {
-            fprintf(stderr,"it->second.satoshis %llu != %llu txfee\n",(long long)it->second.satoshis,(long long)txfee);
+            fprintf(stderr,"it->second.satoshis %llu != %llu txfee\n",(long long)it->second.satoshis,(long long)value);
             continue;
         }
         if ( FetchCCtx(txid,tx,cp) && (numvouts= tx.vout.size()) > 0 )
@@ -652,7 +653,7 @@ bool OraclesDataValidate(struct CCcontract_info *cp,Eval* eval,const CTransactio
 
 bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &tx, uint32_t nIn)
 {
-    uint256 oracletxid,batontxid,txid; uint64_t txfee=10000; int32_t numvins,numvouts,preventCCvins,preventCCvouts; int64_t amount; uint256 hashblock;
+    uint256 oracletxid,batontxid,txid; int32_t numvins,numvouts,preventCCvins,preventCCvouts; int64_t amount; uint256 hashblock;
     uint8_t *script; std::vector<uint8_t> vopret,data; CPubKey publisher,tmppk,oraclespk; char tmpaddress[64],vinaddress[64],oraclesaddr[64];
     CTransaction tmptx; std::string name,desc,format;
 
@@ -663,6 +664,11 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
         return eval->Invalid("no vouts");
     else
     {
+        if (GetLatestTimestamp(komodo_currentheight())>=MAY2020_NNELECTION_HARDFORK)
+        {
+            CCOpretCheck(eval,tx,true,true,true);
+            CCExactAmounts(eval,tx,CC_TXFEE);
+        }
         GetOpReturnData(tx.vout[numvouts-1].scriptPubKey,vopret);
         if ( vopret.size() > 2 )
         {   
@@ -703,7 +709,7 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
                             return eval->Invalid("invalid oraclescreate OP_RETURN data!"); 
                         else if ( IsCCInput(tmptx.vin[0].scriptSig) != 0 )
                             return eval->Invalid("vin.0 is normal for oraclescreate!");
-                        else if (ConstrainVout(tmptx.vout[0],0,oraclesaddr,txfee)==0)
+                        else if (ConstrainVout(tmptx.vout[0],0,oraclesaddr,CC_MARKER_VALUE)==0)
                             return eval->Invalid("invalid marker for oraclescreate!");
                         else if ( IsCCInput(tx.vin[0].scriptSig) != 0 )
                             return eval->Invalid("vin.0 is normal for oraclesregister!");
@@ -713,7 +719,7 @@ bool OraclesValidate(struct CCcontract_info *cp,Eval* eval,const CTransaction &t
                                 || tmptx.vout[tx.vin[1].prevout.n].nValue!=CC_MARKER_VALUE || !Getscriptaddress(vinaddress,tmptx.vout[tx.vin[1].prevout.n].scriptPubKey)
                                 || !GetCCaddress(cp,tmpaddress,tmppk) || strcmp(tmpaddress,vinaddress)!=0) || oracletxid!=txid)
                             return eval->Invalid("invalid vin.1 for oraclesregister, it must be CC vin or pubkey not same as vin pubkey, register and fund tx must be done from owner of pubkey that registers to oracle!!");    
-                        else if (CCtxidaddr(tmpaddress,oracletxid).IsValid() && ConstrainVout(tx.vout[0],0,tmpaddress,txfee)==0)
+                        else if (CCtxidaddr(tmpaddress,oracletxid).IsValid() && ConstrainVout(tx.vout[0],0,tmpaddress,CC_MARKER_VALUE)==0)
                             return eval->Invalid("invalid marker for oraclesregister!");
                         else if (!Getscriptaddress(tmpaddress,CScript() << ParseHex(HexStr(tmppk)) << OP_CHECKSIG) || ConstrainVout(tx.vout[2],0,tmpaddress,CC_MARKER_VALUE)==0)
                             return eval->Invalid("pubkey in OP_RETURN and in vout.2 not matching, register must be done from owner of pubkey that registers to oracle!");
@@ -887,7 +893,7 @@ UniValue OracleCreate(const CPubKey& pk, int64_t txfee,std::string name,std::str
         }
     }    
     if ( txfee == 0 )
-        txfee = 10000;
+        txfee = CC_TXFEE;
     mypk = pk.IsValid()?pk:pubkey2pk(Mypubkey());
     Oraclespk = GetUnspendable(cp,0);
     if ( AddNormalinputs(mtx,mypk,2*txfee,3,pk.IsValid()) > 0 )
@@ -911,7 +917,7 @@ UniValue OracleFund(const CPubKey& pk, int64_t txfee,uint256 oracletxid)
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
     cp = CCinit(&C,EVAL_ORACLES);
     if ( txfee == 0 )
-        txfee = 10000;
+        txfee = CC_TXFEE;
     mypk = pk.IsValid()?pk:pubkey2pk(Mypubkey());
     if (AddNormalinputs(mtx,mypk,txfee+CC_MARKER_VALUE,2,pk.IsValid()))    
     {
@@ -929,7 +935,7 @@ UniValue OracleRegister(const CPubKey& pk, int64_t txfee,uint256 oracletxid,int6
 
     cp = CCinit(&C,EVAL_ORACLES);
     if ( txfee == 0 )
-        txfee = 10000;
+        txfee = CC_TXFEE;
     if (myGetTransaction(oracletxid,tx,hashBlock)==0 || (numvouts=tx.vout.size())<=0)
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
     if (DecodeOraclesCreateOpRet(tx.vout[numvouts-1].scriptPubKey,name,desc,format)!='C')
@@ -958,7 +964,7 @@ UniValue OracleSubscribe(const CPubKey& pk, int64_t txfee,uint256 oracletxid,CPu
     CPubKey mypk,markerpubkey; struct CCcontract_info *cp,C; char markeraddr[64]; std::string name,desc,format; int32_t numvouts; uint256 hashBlock;
     cp = CCinit(&C,EVAL_ORACLES);
     if ( txfee == 0 )
-        txfee = 10000;
+        txfee = CC_TXFEE;
     if (myGetTransaction(oracletxid,tx,hashBlock)==0 || (numvouts=tx.vout.size())<=0)
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "cant find oracletxid " << oracletxid.GetHex());
     if (DecodeOraclesCreateOpRet(tx.vout[numvouts-1].scriptPubKey,name,desc,format)!='C')
@@ -999,7 +1005,7 @@ UniValue OracleData(const CPubKey& pk, int64_t txfee,uint256 oracletxid,std::vec
     else
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracle txid");
     if ( txfee == 0 )
-        txfee = 10000;
+        txfee = CC_TXFEE;
     GetCCaddress(cp,coinaddr,mypk);
     if ( AddNormalinputs(mtx,mypk,2*txfee,3,pk.IsValid()) > 0 ) // have enough funds even if baton utxo not there
     {
