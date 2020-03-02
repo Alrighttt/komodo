@@ -892,7 +892,7 @@ UniValue OracleCreate(const CPubKey& pk, int64_t txfee,std::string name,std::str
     Oraclespk = GetUnspendable(cp,0);
     if ( AddNormalinputs(mtx,mypk,2*txfee,3,pk.IsValid()) > 0 )
     {
-        mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(Oraclespk)) << OP_CHECKSIG));
+        mtx.vout.push_back(CTxOut(CC_MARKER_VALUE,CScript() << ParseHex(HexStr(Oraclespk)) << OP_CHECKSIG));
         return(FinalizeCCTxExt(pk.IsValid(),0,cp,mtx,mypk,txfee,EncodeOraclesCreateOpRet('C',name,description,format)));
     }
     CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "error adding normal inputs");
@@ -940,13 +940,13 @@ UniValue OracleRegister(const CPubKey& pk, int64_t txfee,uint256 oracletxid,int6
     oraclespk = GetUnspendable(cp,0);
     batonpk = OracleBatonPk(batonaddr,cp);
     markerpubkey = CCtxidaddr(markeraddr,oracletxid);
-    if (AddNormalinputs(mtx,mypk,3*txfee,4,pk.IsValid()))
+    if (AddNormalinputs(mtx,mypk,txfee+2*CC_MARKER_VALUE,4,pk.IsValid()))
     {
         if (GetLatestTimestamp(komodo_currentheight())>PUBKEY_SPOOFING_FIX_ACTIVATION && AddMyOraclesFunds(cp,mtx,mypk,oracletxid)!=CC_MARKER_VALUE)
             CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "error adding inputs from your Oracles CC address, please fund it first with oraclesfund rpc!");
-        mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(markerpubkey)) << OP_CHECKSIG));
+        mtx.vout.push_back(CTxOut(CC_MARKER_VALUE,CScript() << ParseHex(HexStr(markerpubkey)) << OP_CHECKSIG));
         mtx.vout.push_back(MakeCC1vout(cp->evalcode,CC_MARKER_VALUE,batonpk));
-        if (GetLatestTimestamp(komodo_get_current_height())>PUBKEY_SPOOFING_FIX_ACTIVATION) mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(mypk)) << OP_CHECKSIG));
+        if (GetLatestTimestamp(komodo_get_current_height())>PUBKEY_SPOOFING_FIX_ACTIVATION) mtx.vout.push_back(CTxOut(CC_MARKER_VALUE,CScript() << ParseHex(HexStr(mypk)) << OP_CHECKSIG));
         return(FinalizeCCTxExt(pk.IsValid(),0,cp,mtx,mypk,txfee,EncodeOraclesOpRet('R',oracletxid,mypk,datafee)));
     }
     CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "error adding normal inputs");
@@ -965,10 +965,10 @@ UniValue OracleSubscribe(const CPubKey& pk, int64_t txfee,uint256 oracletxid,CPu
         CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "invalid oracletxid " << oracletxid.GetHex());
     mypk = pk.IsValid()?pk:pubkey2pk(Mypubkey());
     markerpubkey = CCtxidaddr(markeraddr,oracletxid);
-    if ( AddNormalinputs(mtx,mypk,amount + 2*txfee,64,pk.IsValid()) > 0 )
+    if ( AddNormalinputs(mtx,mypk,amount + txfee + CC_MARKER_VALUE,64,pk.IsValid()) > 0 )
     {
         mtx.vout.push_back(MakeCC1vout(cp->evalcode,amount,publisher));
-        mtx.vout.push_back(CTxOut(txfee,CScript() << ParseHex(HexStr(markerpubkey)) << OP_CHECKSIG));
+        mtx.vout.push_back(CTxOut(CC_MARKER_VALUE,CScript() << ParseHex(HexStr(markerpubkey)) << OP_CHECKSIG));
         return(FinalizeCCTxExt(pk.IsValid(),0,cp,mtx,mypk,txfee,EncodeOraclesOpRet('S',oracletxid,mypk,amount)));
     }
     CCERR_RESULT("oraclescc",CCLOG_INFO, stream << "error adding normal inputs");
@@ -1004,7 +1004,7 @@ UniValue OracleData(const CPubKey& pk, int64_t txfee,uint256 oracletxid,std::vec
     if ( AddNormalinputs(mtx,mypk,2*txfee,3,pk.IsValid()) > 0 ) // have enough funds even if baton utxo not there
     {
         batonpk = OracleBatonPk(batonaddr,cp);
-        batontxid = OracleBatonUtxo(txfee,cp,oracletxid,batonaddr,mypk,prevdata);
+        batontxid = OracleBatonUtxo(CC_MARKER_VALUE,cp,oracletxid,batonaddr,mypk,prevdata);
         if ( batontxid != zeroid ) // not impossible to fail, but hopefully a very rare event
             mtx.vin.push_back(CTxIn(batontxid,1,CScript()));
         else fprintf(stderr,"warning: couldnt find baton utxo %s\n",batonaddr);
