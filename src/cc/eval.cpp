@@ -121,6 +121,13 @@ bool Eval::Dispatch(const CC *cond, const CTransaction &txTo, unsigned int nIn,s
             return ImportCoin(vparams, txTo, nIn);
             break;
 
+        // debug Evals useful for tx creation / signing tests
+        case EVAL_TRUE:
+            return true;
+
+        case EVAL_FALSE:
+            return false;
+
         default:
             return(ProcessCC(cp,this, vparams, txTo, nIn, evalcodeChecker));
             break;

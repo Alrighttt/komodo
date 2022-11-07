@@ -71,6 +71,9 @@
         EVAL(EVAL_TOKENSV2, 0xf5) \
         EVAL(EVAL_ASSETSV2, 0xf6) \
         EVAL(EVAL_TOKELDATA, 0xf7) \
+        EVAL(EVAL_TRUE, 0xfe) \
+        EVAL(EVAL_FALSE, 0xff) \
+
 
 
 // evalcodes 0x10 to 0x7f are reserved for cclib dynamic CC
