@@ -2132,6 +2132,8 @@ void komodo_args(char *argv0)
             if ( ASSETCHAINS_ALGO != ASSETCHAINS_EQUIHASH )
             {
                 extralen += iguana_rwnum(1,&extraptr[extralen],sizeof(ASSETCHAINS_ALGO),(void *)&ASSETCHAINS_ALGO);
+                extralen += iguana_rwnum(1,&extraptr[extralen],sizeof(ASSETCHAINS_ALGO),(void *)&ASSETCHAINS_ALGO);
+                // hacky way of ensuring we do not connect to any other testnets
             }
 
             if ( ASSETCHAINS_LWMAPOS != 0 )
