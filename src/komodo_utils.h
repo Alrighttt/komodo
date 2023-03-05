@@ -1822,7 +1822,7 @@ void komodo_args(char *argv0)
         name = "VRSC";
     }
 
-    if (name != "VRSC")
+    if (0)//name != "VRSC")
     {
         printf("ERROR: Only mainnet is supported in this version of Verus");
         exit(1);
