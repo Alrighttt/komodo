@@ -27,8 +27,12 @@ extern std::string VERUS_CHAINNAME;
 
 CIdentityID VERUS_DEFAULTID;
 CIdentityID VERUS_NOTARYID;
+CIdentityID PBAAS_NOTIFICATION_ORACLE;                                  // an identity that can be used to coordinate on-chain actions or upgrades
+std::string PBAAS_DEFAULT_NOTIFICATION_ORACLE = "Verus Coin Foundation@";
+
 int32_t MAX_OUR_UTXOS_ID_RESCAN = 1000; // this can be set with "-maxourutxosidrescan=n"
 int32_t MAX_UTXOS_ID_RESCAN = 100;      // this can be set with "-maxutxosidrescan=n"
+bool ONLY_ADD_WHITELISTED_UTXOS_ID_RESCAN = false;
 uint160 VERUS_NODEID;
 bool VERUS_PRIVATECHANGE;
 std::string VERUS_DEFAULT_ZADDR;
@@ -114,8 +118,14 @@ UniValue getvdxfid_internal(const UniValue& params)
 
     if (idDest.which() == COptCCParams::ADDRTYPE_ID)
     {
-        cleanName = CleanName(vdxfName, parentID, true, true);
+        cleanName = CleanName(vdxfName, parentID);
         vdxfID = GetDestinationID(idDest);
+    }
+    else if (vdxfName.substr(0,2) == "0x" && !(vdxfID = CTransferDestination::DecodeEthDestination(vdxfName)).IsNull())
+    {
+        parentIDName = "currencyaddresstype";
+        parentID = CIdentity::GetID("veth", parentID);
+        cleanName = vdxfName;
     }
     else
     {
@@ -365,7 +375,7 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
     else if (std::count(str.begin(), str.end(), '@') == 1)
     {
         uint160 parent;
-        std::string cleanName = CleanName(str, parent);
+        std::string cleanName = CleanName(str, parent, true, true);
         if (cleanName != "")
         {
             parent.SetNull();
@@ -981,6 +991,8 @@ std::vector<unsigned char> VectorEncodeVDXFUni(const UniValue &obj)
     auto oneValKeys = obj.getKeys();
     auto oneValValues = obj.getValues();
 
+    // TODO: change if / else to a map lookup
+
     for (int k = 0; k < oneValKeys.size(); k++)
     {
         uint160 objTypeKey = ParseVDXFKey(oneValKeys[k]);
@@ -1586,6 +1598,10 @@ std::vector<std::string> ParseSubNames(const std::string &Name, std::string &Cha
 // hash its parent names into a parent ID and return the parent hash and cleaned, single name
 std::string CleanName(const std::string &Name, uint160 &Parent, bool displayfilter, bool addVerus)
 {
+    // The line below should make sense, but this path should be tested in test mode until we are sure there are
+    // no edge cases
+    addVerus = addVerus && (!PBAAS_TESTMODE || Parent.IsNull());
+
     std::string chainName;
     std::vector<std::string> subNames = ParseSubNames(Name, chainName, displayfilter, addVerus);
 
@@ -1595,6 +1611,7 @@ std::string CleanName(const std::string &Name, uint160 &Parent, bool displayfilt
     }
 
     if (!Parent.IsNull() &&
+        subNames.size() > 1 &&
         boost::to_lower_copy(subNames.back()) == boost::to_lower_copy(VERUS_CHAINNAME))
     {
         subNames.pop_back();

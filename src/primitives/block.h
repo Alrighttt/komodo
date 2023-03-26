@@ -813,6 +813,8 @@ enum CHAIN_OBJECT_TYPES
     CHAINOBJ_EVIDENCEDATA = 10      // flexible evidence data
 };
 
+std::vector<uint32_t> UnpackBlockCommitment(__uint128_t oneBlockCommitment);
+
 // the proof of an opret output, which is simply the types of objects and hashes of each
 class COpRetProof
 {
@@ -892,10 +894,11 @@ public:
     // in the commitmentTypes as low bit boolean indicators of PoS vs. PoW (PoS == true)
     CHashCommitments(const std::vector<__uint128_t> &smallCommitmentsLowBool, uint32_t nVersion=VERSION_CURRENT);
 
-    CHashCommitments(const UniValue &uniObj)
+    CHashCommitments(const UniValue &uniObj, uint32_t nVersion=VERSION_CURRENT)
     {
         try
         {
+            version = uni_get_int64(find_value(uniObj, "version"), nVersion);
             std::string hexData = uni_get_str(find_value(uniObj, "hex"));
             if (!hexData.empty() && IsHex(hexData))
             {
@@ -1107,9 +1110,6 @@ public:
         static uint160 signatureKey = CVDXF::GetDataKey(NotaryRejectedKeyName(), nameSpace);
         return signatureKey;
     }
-
-    CIdentitySignature::ESignatureVerification SignConfirmed(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType);
-    CIdentitySignature::ESignatureVerification SignRejected(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType);
 
     bool IsConfirmed() const
     {
@@ -2235,14 +2235,15 @@ public:
     }
 
     EStates CheckSignatureConfirmation(const uint256 &objHash,
+                                       CCurrencyDefinition::EHashTypes hashType,
                                        const std::set<uint160> &notarySet,
                                        int minConfirming,
                                        uint32_t checkHeight=0,
                                        uint32_t *pDecisionHeight=nullptr,
-                                       std::map<CIdentityID, CIdentitySignature> *pConfirmedAtHeight=nullptr,
-                                       std::map<CIdentityID, CIdentitySignature> *pRejectedAtHeight=nullptr,
-                                       std::map<CIdentityID, std::set<std::vector<unsigned char>>> *pNotarySetRejects=nullptr,
-                                       std::map<CIdentityID, std::set<std::vector<unsigned char>>> *pNotarySetConfirms=nullptr) const;
+                                       std::map<CIdentityID, CIdentitySignature> *pNotarySetRejects=nullptr,
+                                       std::map<CIdentityID, CIdentitySignature> *pNotarySetConfirms=nullptr,
+                                       std::map<uint32_t, std::map<CIdentityID, CIdentitySignature>> *pRejectsByHeight=nullptr,
+                                       std::map<uint32_t, std::map<CIdentityID, CIdentitySignature>> *pConfirmsByHeight=nullptr) const;
 
     static std::string NotarySignatureKeyName()
     {
@@ -2314,6 +2315,18 @@ public:
         return challengeKey;
     }
 
+    static std::string TipChallengeKeyName()
+    {
+        return "vrsc::evidence.tipchallenge";
+    }
+
+    static uint160 TipChallengeKey()
+    {
+        static uint160 nameSpace;
+        static uint160 challengeKey = CVDXF::GetDataKey(TipChallengeKeyName(), nameSpace);
+        return challengeKey;
+    }
+
     static std::string ValidityChallengeKeyName()
     {
         return "vrsc::evidence.validitychallenge";
@@ -2350,8 +2363,8 @@ public:
         return proofKey;
     }
 
-    CIdentitySignature::ESignatureVerification SignConfirmed(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType);
-    CIdentitySignature::ESignatureVerification SignRejected(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType);
+    CIdentitySignature::ESignatureVerification SignConfirmed(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType, CNotaryEvidence *pNewSignatures=nullptr);
+    CIdentitySignature::ESignatureVerification SignRejected(const std::set<uint160> &notarySet, int minConfirming, const CKeyStore &keyStore, const CTransaction &txToConfirm, const CIdentityID &signWithID, uint32_t height, CCurrencyDefinition::EHashTypes hashType, CNotaryEvidence *pNewSignatures=nullptr);
 
     bool IsMultipartProof() const
     {

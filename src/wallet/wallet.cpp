@@ -1871,7 +1871,7 @@ bool CWallet::VerusSelectStakeOutput(CBlock *pBlock, arith_uint256 &hashResult, 
                     ((txout.tx->vout[txout.i].scriptPubKey.IsPayToCryptoCondition(p) &&
                     extendedStake &&
                     canSpend) ||
-                    (!p.IsValid() && (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH) && ::IsMine(*this, destinations[0]))))
+                    (!p.IsValid() && (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH) && ::IsMine(*this, destinations[0]) == ISMINE_SPENDABLE)))
                 {
                     uint256 txHash = txout.tx->GetHash();
                     checkStakeTx.vin.push_back(CTxIn(COutPoint(txHash, txout.i)));
@@ -1883,24 +1883,32 @@ bool CWallet::VerusSelectStakeOutput(CBlock *pBlock, arith_uint256 &hashResult, 
                         {
                             bool isValid = true;
                             // after PBaaS activation,
-                            // we can't stake an output that is to an ID, which has been modified more recently than stakeage
-                            if (whichType == txnouttype::TX_CRYPTOCONDITION &&
-                                isPBaaS &&
-                                (chainActive.Height() >= (nHeight - 1) ?
-                                    chainActive[nHeight - 1]->nTime > PBAAS_TESTFORK_TIME :
-                                    chainActive.LastTip()->nTime > PBAAS_TESTFORK_TIME))
+                            // we can't stake an output that has a destination to an ID,
+                            // which has been modified more recently than stakeage
+                            if (whichType == txnouttype::TX_CRYPTOCONDITION && isPBaaS)
                             {
                                 for (auto &oneDest : destinations)
                                 {
                                     if (oneDest.which() == COptCCParams::ADDRTYPE_ID)
                                     {
                                         uint256 idTxId;
-                                        std::pair<CIdentityMapKey, CIdentityMapValue> keyAndIdentity;
-                                        if (!GetIdentity(CIdentityMapKey(GetDestinationID(oneDest)), idTxId, keyAndIdentity) ||
-                                            (nHeight - keyAndIdentity.first.blockHeight) < VERUS_MIN_STAKEAGE)
+                                        CIdentity destIdentity;
+                                        uint32_t idHeight;
+                                        if (!(destIdentity = CIdentity::LookupIdentity(GetDestinationID(oneDest), 0, &idHeight)).IsValid() ||
+                                            (nHeight - idHeight) < VERUS_MIN_STAKEAGE)
                                         {
+                                            if (LogAcceptCategory("staking"))
+                                            {
+                                                if (!destIdentity.IsValid())
+                                                {
+                                                    LogPrintf("%s: Invalid ID %s as UTXO destination\n", __func__, EncodeDestination(CIdentityID(GetDestinationID(oneDest))).c_str());
+                                                }
+                                                else
+                                                {
+                                                    LogPrintf("%s: Identity that has been updated more recently than minimum stake age (%d) blocks renders UTXO ineligible to stake\n", __func__, EncodeDestination(CIdentityID(GetDestinationID(oneDest))).c_str(), VERUS_MIN_STAKEAGE);
+                                                }
+                                            }
                                             isValid = false;
-                                            break;
                                         }
                                     }
                                 }
@@ -2897,8 +2905,11 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pbl
                                         // to prevent forced rescans, don't rescan anything that has too many UTXOs
                                         // unless this is a real rescan, and above a very small threshold, only dynamically scan
                                         // if this wallet holds revoke and recover as well
-                                        if (!isRescan &&
-                                            unspentOutputs.size() > MAX_UTXOS_ID_RESCAN)
+                                        CRating identityTrust = GetIdentityTrust(idID);
+                                        if ((ONLY_ADD_WHITELISTED_UTXOS_ID_RESCAN &&
+                                             !(identityTrust.IsValid() && identityTrust.trustLevel == identityTrust.TRUST_APPROVED)) ||
+                                            (!isRescan &&
+                                             unspentOutputs.size() > MAX_UTXOS_ID_RESCAN))
                                         {
                                             if (unspentOutputs.size() > MAX_OUR_UTXOS_ID_RESCAN)
                                             {
@@ -4032,45 +4043,6 @@ int64_t CWalletTx::GetTxTime() const
     return n ? n : nTimeReceived;
 }
 
-int CWalletTx::GetRequestCount() const
-{
-    // Returns -1 if it wasn't being tracked
-    int nRequests = -1;
-    {
-        LOCK(pwallet->cs_wallet);
-        if (IsCoinBase())
-        {
-            // Generated block
-            if (!hashBlock.IsNull())
-            {
-                map<uint256, int>::const_iterator mi = pwallet->mapRequestCount.find(hashBlock);
-                if (mi != pwallet->mapRequestCount.end())
-                    nRequests = (*mi).second;
-            }
-        }
-        else
-        {
-            // Did anyone request this transaction?
-            map<uint256, int>::const_iterator mi = pwallet->mapRequestCount.find(GetHash());
-            if (mi != pwallet->mapRequestCount.end())
-            {
-                nRequests = (*mi).second;
-
-                // How about the block it's in?
-                if (nRequests == 0 && !hashBlock.IsNull())
-                {
-                    map<uint256, int>::const_iterator mi = pwallet->mapRequestCount.find(hashBlock);
-                    if (mi != pwallet->mapRequestCount.end())
-                        nRequests = (*mi).second;
-                    else
-                        nRequests = 1; // If it's in someone else's block it must have got out
-                }
-            }
-        }
-    }
-    return nRequests;
-}
-
 // GetAmounts will determine the transparent debits and credits for a given wallet tx.
 void CWalletTx::GetAmounts(list<COutputEntry>& listReceived,
                            list<COutputEntry>& listSent, CAmount& nFee, string& strSentAccount, const isminefilter& filter) const
@@ -4353,12 +4325,13 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate)
 
     {
         //Lock cs_keystore to prevent wallet from locking during rescan
-        LOCK(cs_KeyStore);
+        LOCK2(mempool.cs, cs_KeyStore);
 
+        // REMOVE UNTIL WE HAVE A BETTER WAY OF ENABLING NEW KEYS THAT MAY HAVE EXISTED BEFORE WALLET BIRTHDAY
         // no need to read and scan block, if block was created before
         // our wallet birthday (as adjusted for block time variability)
-        while (pindex && nTimeFirstKey && (pindex->GetBlockTime() < (nTimeFirstKey - 7200)))
-            pindex = chainActive.Next(pindex);
+        //while (pindex && nTimeFirstKey && (pindex->GetBlockTime() < (nTimeFirstKey - 7200)))
+        //    pindex = chainActive.Next(pindex);
 
         ShowProgress(_("Rescanning..."), 0); // show rescan progress in GUI as dialog or on splashscreen, if -rescan on startup
         double dProgressStart = Checkpoints::GuessVerificationProgress(chainParams.Checkpoints(), pindex, false);
@@ -4966,7 +4939,7 @@ CCurrencyValueMap CWallet::GetReserveBalance(bool includeIDLocked) const
         {
             const CWalletTx* pcoin = &(*it).second;
             if (pcoin->IsTrusted())
-                retVal += pcoin->GetAvailableReserveCredit(includeIDLocked, includeIDLocked, ISMINE_SHARED);
+                retVal += pcoin->GetAvailableReserveCredit(includeIDLocked, includeIDLocked);
         }
     }
 
@@ -4982,7 +4955,7 @@ CCurrencyValueMap CWallet::GetSharedReserveBalance(bool includeIDLocked) const
         {
             const CWalletTx* pcoin = &(*it).second;
             if (pcoin->IsTrusted())
-                retVal += pcoin->GetAvailableReserveCredit(includeIDLocked, includeIDLocked);
+                retVal += pcoin->GetAvailableReserveCredit(includeIDLocked, includeIDLocked, ISMINE_SHARED);
         }
     }
 
