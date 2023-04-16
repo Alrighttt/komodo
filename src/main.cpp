@@ -1275,6 +1275,15 @@ bool ContextualCheckTransaction(
                             REJECT_INVALID, "bad-txns-oversize");
     }
 
+    // Rules that apply to PBaaS or later:
+    if (isPBaaS) {
+        for (const JSDescription& joinsplit : tx.vJoinSplit) {
+            if (joinsplit.vpub_old > 0) {
+                return state.DoS(100, error("ContextualCheckTransaction(): joinsplit.vpub_old nonzero"), REJECT_INVALID, "bad-txns-vpub_old-nonzero");
+            }
+        }
+    }
+
     uint256 dataToBeSigned;
 
     if (!tx.IsMint() &&
@@ -3553,7 +3562,7 @@ bool FindUndoPos(CValidationState &state, int nFile, CDiskBlockPos &pos, unsigne
 static CCheckQueue<CScriptCheck> scriptcheckqueue(128);
 
 void ThreadScriptCheck() {
-    RenameThread("zcash-scriptch");
+    RenameThread("verus-scriptch");
     scriptcheckqueue.Thread();
 }
 
@@ -6180,7 +6189,7 @@ bool ContextualCheckBlockHeader(
     int nHeight = pindexPrev->GetHeight()+1;
 
     // Check proof of work
-    if ((ASSETCHAINS_SYMBOL[0] != 0 || !IsVerusMainnetActive() || nHeight < 235300 || nHeight > 236000) && block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
+    if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
     {
         cout << block.nBits << " block.nBits vs. calc " << GetNextWorkRequired(pindexPrev, &block, consensusParams) <<
                                " for block #" << nHeight << endl;

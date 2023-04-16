@@ -900,124 +900,6 @@ void GetCurrencyDefinitions(const uint160 &systemIDQualifier,
     }
 }
 
-bool CConnectedChains::GetNotaryCurrencies(const CRPCChainData notaryChain,
-                                           const std::set<uint160> &currencyIDs,
-                                           std::map<uint160, std::pair<CCurrencyDefinition,CPBaaSNotarization>> &currencyDefs)
-{
-    for (auto &curID : currencyIDs)
-    {
-        CCurrencyDefinition oneDef;
-        UniValue params(UniValue::VARR);
-        params.push_back(EncodeDestination(CIdentityID(curID)));
-
-        UniValue result;
-        try
-        {
-            result = find_value(RPCCallRoot("getcurrency", params), "result");
-        } catch (exception e)
-        {
-            result = NullUniValue;
-        }
-
-        if (!result.isNull())
-        {
-            oneDef = CCurrencyDefinition(result);
-        }
-
-        if (!oneDef.IsValid())
-        {
-            // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
-            LogPrintf("Unable to get currency definition for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-            printf("Unable to get currency definition for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-            return false;
-        }
-
-        {
-            CChainNotarizationData cnd;
-            UniValue result;
-            try
-            {
-                result = find_value(RPCCallRoot("getnotarizationdata", params), "result");
-            } catch (exception e)
-            {
-                result = NullUniValue;
-            }
-
-            if (!result.isNull())
-            {
-                cnd = CChainNotarizationData(result);
-            }
-
-            if (!cnd.IsValid())
-            {
-                // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
-                LogPrintf("Invalid notarization data for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-                printf("Invalid notarization data for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-                return false;
-            }
-            LOCK(cs_mergemining);
-            currencyDefs[oneDef.GetID()].first = oneDef;
-            if (cnd.IsConfirmed())
-            {
-                currencyDefs[oneDef.GetID()].second = cnd.vtx[cnd.lastConfirmed].second;
-                currencyDefs[oneDef.GetID()].second.SetBlockOneNotarization();
-            }
-        }
-    }
-    return true;
-}
-
-bool CConnectedChains::GetNotaryIDs(const CRPCChainData notaryChain, const std::set<uint160> &idIDs, std::map<uint160, CIdentity> &identities)
-{
-    for (auto &curID : idIDs)
-    {
-        CIdentity oneDef;
-        UniValue params(UniValue::VARR);
-        params.push_back(EncodeDestination(CIdentityID(curID)));
-
-        UniValue result;
-        try
-        {
-            result = find_value(RPCCallRoot("getidentity", params), "result");
-        } catch (exception e)
-        {
-            result = NullUniValue;
-        }
-
-        if (!result.isNull())
-        {
-            oneDef = CIdentity(find_value(result, "identity"));
-        }
-
-        if (!oneDef.IsValid())
-        {
-            // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
-            LogPrintf("Unable to get identity for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-            printf("Unable to get identity for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
-            return false;
-        }
-
-        {
-            identities[oneDef.GetID()] = oneDef;
-        }
-    }
-
-    // if we have a currency converter, create a new ID as a clone of the main chain ID with revocation and recovery as main chain ID
-    if (!ConnectedChains.ThisChain().GatewayConverterID().IsNull())
-    {
-        CIdentity newConverterIdentity = identities[ASSETCHAINS_CHAINID];
-        assert(newConverterIdentity.IsValid());
-        newConverterIdentity.parent = ASSETCHAINS_CHAINID;
-        newConverterIdentity.systemID = ASSETCHAINS_CHAINID;
-        newConverterIdentity.name = ConnectedChains.ThisChain().gatewayConverterName;
-        newConverterIdentity.contentMap.clear();
-        newConverterIdentity.contentMultiMap.clear();
-        newConverterIdentity.revocationAuthority = newConverterIdentity.recoveryAuthority = ASSETCHAINS_CHAINID;
-        identities[ConnectedChains.ThisChain().GatewayConverterID()] = newConverterIdentity;
-    }
-    return true;
-}
-
 bool CConnectedChains::GetLastImport(const uint160 &currencyID,
                                      CTransaction &lastImport,
                                      int32_t &outputNum)
@@ -6490,7 +6372,7 @@ UniValue makeoffer(const UniValue& params, bool fHelp)
     auto changeAddressStr = TrimSpaces(uni_get_str(find_value(params[1], "changeaddress")));
     if (changeAddressStr.empty() || (changeDestination = ValidateDestination(changeAddressStr)).which() == COptCCParams::ADDRTYPE_INVALID)
     {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "changeaddress must be valid");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "changeaddress must be valid, transparent address, for privacy use fresh address");
     }
 
     if (find_value(forValue, "name").isNull())
@@ -6526,7 +6408,7 @@ UniValue makeoffer(const UniValue& params, bool fHelp)
             }
         }
 
-        auto destStr = TrimSpaces(uni_get_str(find_value(forValue, "address")), true);
+        auto destStr = TrimSpaces(uni_get_str(find_value(forValue, "address")), true, "\\/*?\"<>|");
 
         fundsDestination = ValidateDestination(destStr);
         CTransferDestination dest;
@@ -9007,7 +8889,7 @@ UniValue sendcurrency(const UniValue& params, bool fHelp)
 
             auto opRetHex = TrimSpaces(uni_get_str(find_value(uniOutputs[i], "opret")));
             CAmount sourceAmount = AmountFromValue(find_value(uniOutputs[i], "amount"));
-            auto destStr = TrimSpaces(uni_get_str(find_value(uniOutputs[i], "address")));
+            auto destStr = TrimSpaces(uni_get_str(find_value(uniOutputs[i], "address")), true, "\\/*?\"<>|");
             auto exportId = uni_get_bool(find_value(uniOutputs[i], "exportid"));
             auto exportCurrency = uni_get_bool(find_value(uniOutputs[i], "exportcurrency"));
             auto refundToStr = TrimSpaces(uni_get_str(find_value(uniOutputs[i], "refundto")));
@@ -11176,6 +11058,13 @@ CCurrencyDefinition ValidateNewUnivalueCurrencyDefinition(const UniValue &uniObj
         if (!hasCoreReserve)
         {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Fractional currency requires a reserve of " + std::string(ASSETCHAINS_SYMBOL) + " in addition to any other reserves");
+        }
+        if (newCurrency.IsGatewayConverter())
+        {
+            if (!(currencySet.count(newCurrency.launchSystemID) && currencySet.count(newCurrency.gatewayID)))
+            {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid gateway converter does not contain both launch chain and new PBaaS chain or gateway's native currencies");
+            }
         }
     }
     return newCurrency;
@@ -13520,7 +13409,10 @@ UniValue updateidentity(const UniValue& params, bool fHelp)
     CIdentity revocationAuth = newID.revocationAuthority == newIDID ? newID : newID.LookupIdentity(newID.revocationAuthority);
     CIdentity recoveryAuth = newID.recoveryAuthority == newIDID ? newID : newID.LookupIdentity(newID.recoveryAuthority);
 
-    if ((!revocationAuth.IsValid() || !recoveryAuth.IsValid()) && !newID.HasTokenizedControl())
+    bool isRevocationMutation = oldID.IsRevocation(newID) || oldID.IsRevocationMutation(newID, nHeight + 1);
+    bool isRecoveryMutation = oldID.IsRecovery(newID) || oldID.IsRecoveryMutation(newID, nHeight + 1);
+
+    if (((isRevocationMutation && !revocationAuth.IsValid()) || (isRecoveryMutation && !recoveryAuth.IsValid())) && !newID.HasTokenizedControl())
     {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid revocation or recovery authority without tokenized ID control");
     }
@@ -14234,6 +14126,166 @@ UniValue getidentity(const UniValue& params, bool fHelp)
     }
 }
 
+bool CConnectedChains::GetNotaryCurrencies(const CRPCChainData notaryChain,
+                                           const std::set<uint160> &currencyIDs,
+                                           std::map<uint160, std::pair<CCurrencyDefinition, CPBaaSNotarization>> &currencyDefs,
+                                           uint32_t untilHeight)
+{
+    for (auto &curID : currencyIDs)
+    {
+        CCurrencyDefinition oneDef;
+        UniValue params(UniValue::VARR);
+        UniValue result, error;
+        params.push_back(EncodeDestination(CIdentityID(curID)));
+
+        if (notaryChain.GetID() == ASSETCHAINS_CHAINID)
+        {
+            try
+            {
+                result = getcurrency(params, false);
+            } catch (std::exception e)
+            {
+                result = NullUniValue;
+            }
+        }
+        else
+        {
+            try
+            {
+                result = find_value(RPCCallRoot("getcurrency", params), "result");
+            } catch (exception e)
+            {
+                result = NullUniValue;
+            }
+        }
+
+        if (!result.isNull())
+        {
+            oneDef = CCurrencyDefinition(result);
+        }
+
+        if (!oneDef.IsValid())
+        {
+            // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
+            LogPrintf("Unable to get currency definition for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+            printf("Unable to get currency definition for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+            return false;
+        }
+
+        CPBaaSNotarization launchNotarization;
+
+        // get launch notarization from notary chain if on the notary chain or pre-block 1, and from block 1 if on
+        // the PBaaS chain after it has been confirmed
+        if ((oneDef.IsPBaaSChain() || oneDef.IsGatewayConverter()) && oneDef.launchSystemID == notaryChain.GetID())
+        {
+            if (notaryChain.GetID() == ASSETCHAINS_CHAINID || chainActive.Height() > 0)
+            {
+                try
+                {
+                    result = getlaunchinfo(params, false);
+                } catch (std::exception e)
+                {
+                    result = NullUniValue;
+                }
+            }
+            else
+            {
+                try
+                {
+                    result = find_value(RPCCallRoot("getlaunchinfo", params), "result");
+                } catch (exception e)
+                {
+                    result = NullUniValue;
+                }
+            }
+            if (result.isNull() || !(launchNotarization = CPBaaSNotarization(find_value(result, "launchnotarization"))).IsValid())
+            {
+                LogPrintf("Unable to get notarization for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+                printf("Unable to get notarization for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+                return false;
+            }
+        }
+
+        {
+            LOCK(cs_mergemining);
+            currencyDefs[oneDef.GetID()].first = oneDef;
+            currencyDefs[oneDef.GetID()].second = launchNotarization;
+            currencyDefs[oneDef.GetID()].second.SetBlockOneNotarization();
+        }
+    }
+    return true;
+}
+
+bool CConnectedChains::GetNotaryIDs(const CRPCChainData notaryChain,
+                                    const CCurrencyDefinition &pbaasChain,
+                                    const std::set<uint160> &idIDs,
+                                    std::map<uint160, CIdentity> &identities,
+                                    uint32_t untilHeight)
+{
+    for (auto &curID : idIDs)
+    {
+        CIdentity oneDef;
+        UniValue params(UniValue::VARR);
+        UniValue result;
+        params.push_back(EncodeDestination(CIdentityID(curID)));
+        params.push_back((int64_t)untilHeight);
+
+        if (notaryChain.GetID() == ASSETCHAINS_CHAINID)
+        {
+            try
+            {
+                result = getidentity(params, false);
+            } catch (std::exception e)
+            {
+                result = NullUniValue;
+            }
+        }
+        else
+        {
+            try
+            {
+                result = find_value(RPCCallRoot("getidentity", params), "result");
+            } catch (exception e)
+            {
+                result = NullUniValue;
+            }
+        }
+
+        if (!result.isNull())
+        {
+            oneDef = CIdentity(find_value(result, "identity"));
+        }
+
+        if (!oneDef.IsValid())
+        {
+            // no matter what happens, we should be able to get a valid currency state of some sort, if not, fail
+            LogPrintf("Unable to get identity for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+            printf("Unable to get identity for %s\n", EncodeDestination(CIdentityID(curID)).c_str());
+            return false;
+        }
+
+        {
+            identities[oneDef.GetID()] = oneDef;
+        }
+    }
+
+    // if we have a currency converter, create a new ID as a clone of the main chain ID with revocation and recovery as main chain ID
+    if (!pbaasChain.GatewayConverterID().IsNull())
+    {
+        uint160 pbaasID = pbaasChain.GetID();
+        CIdentity newConverterIdentity = identities[pbaasID];
+        assert(newConverterIdentity.IsValid());
+        newConverterIdentity.parent = pbaasID;
+        newConverterIdentity.systemID = pbaasID;
+        newConverterIdentity.name = pbaasChain.gatewayConverterName;
+        newConverterIdentity.contentMap.clear();
+        newConverterIdentity.contentMultiMap.clear();
+        newConverterIdentity.revocationAuthority = newConverterIdentity.recoveryAuthority = pbaasID;
+        identities[pbaasChain.GatewayConverterID()] = newConverterIdentity;
+    }
+    return true;
+}
+
 UniValue getidentityhistory(const UniValue& params, bool fHelp)
 {
     if (fHelp || params.size() < 1 || params.size() > 5)
@@ -14568,8 +14620,8 @@ UniValue listidentities(const UniValue& params, bool fHelp)
             "\nResult:\n"
 
             "\nExamples:\n"
-            + HelpExampleCli("listidentities", "\'{\"name\" : \"myname\"}\'")
-            + HelpExampleRpc("listidentities", "\'{\"name\" : \"myname\"}\'")
+            + HelpExampleCli("listidentities", "true")
+            + HelpExampleRpc("listidentities", "true")
         );
     }
 

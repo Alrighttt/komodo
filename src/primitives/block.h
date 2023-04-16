@@ -2099,7 +2099,6 @@ public:
 
     enum EConstants {
         DEFAULT_OUTPUT_VALUE = 0,
-        MAX_EVIDENCE_SUPPLEMENTALS = 25     // how many reserve transfers can be max in each output
     };
 
     enum ETypes {
@@ -2401,6 +2400,11 @@ public:
                version <= VERSION_LAST &&
                !systemID.IsNull() &&
                output.IsValid();
+    }
+
+    bool HasEvidence() const
+    {
+        return IsValid() && evidence.chainObjects.size();
     }
 };
 

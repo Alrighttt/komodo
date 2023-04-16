@@ -251,12 +251,12 @@ public:
         MIN_BLOCKS_TO_AUTOCONFIRM = 100,                // we cannot autoconfirm (signature-free) a notarization < 200 blocks old
         MIN_BLOCKS_TO_SIGNCONFIRM = 15,                 // we cannot sign confirm a notarization < 15 blocks old
 
-        MAX_HEADER_PROOFS_PER_PROOF = 50,               // don't use more than this many header proofs in an alternate chain proof tx
+        MAX_HEADER_PROOFS_PER_PROOF = 25,               // don't use more than this many header proofs in an alternate chain proof tx
         MAX_BLOCKS_PER_COMMITMENT_RANGE = 256,          // up to 256 blocks per commitment range
         MAX_BLOCK_RANGES_PER_PROOF = 5,                 // no more than 5 randomly selected ranges to cover any gap length
         NUM_COMMITMENT_BLOCKS_START_OFFSET = 100,       // commitment blocks start this far before the actual start or at 1
         NUM_BLOCKS_PER_PROOF_RANGE = 100,               // number of blocks in an ideal proof range
-        NUM_HEADER_PROOF_RANGE_DIVISOR = 10,            // divide proof range length by this to determine required header proofs
+        NUM_HEADER_PROOF_RANGE_DIVISOR = 10,            // proofs every this many blocks
         MIN_BLOCKS_PER_CHECKPOINT = 256,                // blocks before we need another checkpoint
         MAX_PROOF_CHECKPOINTS = 100,                    // we do not add more than 100, after that, they are spaced further apart
         BLOCKS_TO_STABLE_PBAAS_ROOT = 5,                // PBaaS tip ahead of considered a "laststableroot", must be proven on challenge
@@ -746,6 +746,17 @@ public:
     // both sets the mirror flag and also transforms the notarization
     // between mirror states. returns false if could not change state to requested.
     bool SetMirror(bool setTrue=true);
+    void SetMirrorFlag(bool setTrue=true)
+    {
+        if (setTrue)
+        {
+            flags |= FLAG_ACCEPTED_MIRROR;
+        }
+        else
+        {
+            flags &= ~FLAG_ACCEPTED_MIRROR;
+        }
+    }
 
     bool IsDefinitionNotarization() const
     {
@@ -1182,9 +1193,14 @@ public:
 
     bool GetNotaryCurrencies(const CRPCChainData notaryChain,
                              const std::set<uint160> &currencyIDs,
-                             std::map<uint160, std::pair<CCurrencyDefinition,CPBaaSNotarization>> &currencyDefs);
+                             std::map<uint160, std::pair<CCurrencyDefinition,CPBaaSNotarization>> &currencyDefs,
+                             uint32_t untilHeight);
 
-    bool GetNotaryIDs(const CRPCChainData notaryChain, const std::set<uint160> &idIDs, std::map<uint160,CIdentity> &identities);
+    bool GetNotaryIDs(const CRPCChainData notaryChain,
+                      const CCurrencyDefinition &pbaasChain,
+                      const std::set<uint160> &idIDs,
+                      std::map<uint160,CIdentity> &identities,
+                      uint32_t untilHeight);
 
     static std::string UpgradeDataKeyName()
     {
@@ -1231,6 +1247,42 @@ public:
     {
         static uint160 nameSpace;
         static uint160 key = CVDXF_Data::GetDataKey(OptionalPBaaSUpgradeKeyName(), nameSpace);
+        return key;
+    }
+
+    static std::string DisableDeFiKeyName()
+    {
+        return "vrsc::system.upgradedata.disabledefi";
+    }
+
+    static uint160 DisableDeFiKey()
+    {
+        static uint160 nameSpace;
+        static uint160 key = CVDXF_Data::GetDataKey(DisableDeFiKeyName(), nameSpace);
+        return key;
+    }
+
+    static std::string DisablePBaaSCrossChainKeyName()
+    {
+        return "vrsc::system.upgradedata.disablepbaascrosschain";
+    }
+
+    static uint160 DisablePBaaSCrossChainKey()
+    {
+        static uint160 nameSpace;
+        static uint160 key = CVDXF_Data::GetDataKey(DisablePBaaSCrossChainKeyName(), nameSpace);
+        return key;
+    }
+
+    static std::string DisableGatewayCrossChainKeyName()
+    {
+        return "vrsc::system.upgradedata.disablegatewaycrosschain";
+    }
+
+    static uint160 DisableGatewayCrossChainKey()
+    {
+        static uint160 nameSpace;
+        static uint160 key = CVDXF_Data::GetDataKey(DisableGatewayCrossChainKeyName(), nameSpace);
         return key;
     }
 
