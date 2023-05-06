@@ -664,12 +664,12 @@ bool CScript::IsInstantSpendOrUnspendable() const
     return isInstantSpend;
 }
 
-bool CScript::IsPayToCryptoCondition(COptCCParams &ccParams) const
+bool CScript::IsPayToCryptoCondition(COptCCParams &ccParams, bool doSizeCheck) const
 {
     CScript subScript;
     std::vector<std::vector<unsigned char>> vParams;
 
-    if (!size() || size() > MAX_SCRIPT_SIZE)
+    if (!size() || (doSizeCheck && size() > MAX_SCRIPT_SIZE))
     {
         return false;
     }
@@ -721,20 +721,6 @@ bool CScript::IsPayToCryptoCondition(uint32_t *ecode) const
     return false;
 }
 
-CScript &CScript::ReplaceCCParams(const COptCCParams &params)
-{
-    CScript subScript;
-    std::vector<std::vector<unsigned char>> vParams;
-    COptCCParams p;
-    if (this->IsPayToCryptoCondition(&subScript, vParams, p) || p.evalCode != params.evalCode)
-    {
-        // add the object to the end of the script
-        *this = subScript;
-        *this << params.AsVector() << OP_DROP;
-    }
-    return *this;
-}
-
 bool CScript::IsSpendableOutputType(const COptCCParams &p) const
 {
     bool isSpendable = true;
@@ -744,16 +730,23 @@ bool CScript::IsSpendableOutputType(const COptCCParams &p) const
     }
     switch (p.evalCode)
     {
-        case EVAL_CURRENCYSTATE:
+        case EVAL_CURRENCY_DEFINITION:
+        case EVAL_NOTARY_EVIDENCE:
+        case EVAL_EARNEDNOTARIZATION:
+        case EVAL_ACCEPTEDNOTARIZATION:
+        case EVAL_FINALIZE_NOTARIZATION:
         case EVAL_RESERVE_TRANSFER:
         case EVAL_IDENTITY_ADVANCEDRESERVATION:
         case EVAL_RESERVE_DEPOSIT:
+        case EVAL_CROSSCHAIN_EXPORT:
+        case EVAL_FINALIZE_EXPORT:
         case EVAL_CROSSCHAIN_IMPORT:
         case EVAL_IDENTITY_COMMITMENT:
         case EVAL_IDENTITY_PRIMARY:
         case EVAL_IDENTITY_REVOKE:
         case EVAL_IDENTITY_RECOVER:
         case EVAL_IDENTITY_RESERVATION:
+        case EVAL_FEE_POOL:
         {
             isSpendable = false;
             break;
@@ -1051,6 +1044,25 @@ uint160 CScript::AddressHash() const
         }
     }
     return addressHash;
+}
+
+bool COptCCParams::IsInstantSpendOrUnspendable() const
+{
+    bool isInstantSpend = false;
+    if (version >= VERSION_V3)
+    {
+        if (evalCode == EVAL_EARNEDNOTARIZATION ||
+            evalCode == EVAL_NOTARY_EVIDENCE ||
+            evalCode == EVAL_FINALIZE_NOTARIZATION ||
+            evalCode == EVAL_FINALIZE_EXPORT ||
+            evalCode == EVAL_CROSSCHAIN_IMPORT ||
+            evalCode == EVAL_CROSSCHAIN_EXPORT ||
+            evalCode == EVAL_FEE_POOL)
+        {
+            isInstantSpend = true;
+        }
+    }
+    return isInstantSpend;
 }
 
 std::set<CIndexID> COptCCParams::GetIndexKeys() const
@@ -1410,6 +1422,15 @@ std::set<CIndexID> COptCCParams::GetIndexKeys() const
                 for (auto defIT = identity.contentMultiMap.begin(); defIT != identity.contentMultiMap.end(); defIT++)
                 {
                     destinations.insert(CCrossChainRPCData::GetConditionID(CVDXF_Data::MultiMapKey(), CCrossChainRPCData::GetConditionID(defIT->first, identity.GetID())));
+
+                    if (LogAcceptCategory("oracleupgrades"))
+                    {
+                        LogPrintf("%s: defIT->first: %s, identity.GetID(): %s, lookupKey: %s\n", __func__,
+                                    EncodeDestination(CIdentityID(defIT->first)).c_str(),
+                                    EncodeDestination(identity.GetID()).c_str(),
+                                    EncodeDestination(CIdentityID(CCrossChainRPCData::GetConditionID(CVDXF_Data::MultiMapKey(), CCrossChainRPCData::GetConditionID(defIT->first, identity.GetID())))).c_str());
+                    }
+
                     if (defIT->first == CVDXF_Data::TypeDefinitionKey())
                     {
                         CDataStream ss(defIT->second, SER_DISK, PROTOCOL_VERSION);

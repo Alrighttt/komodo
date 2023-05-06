@@ -250,8 +250,10 @@ public:
         MODULO_EXTENSION_MULTIPLIER = 10,               // notarization rate drops to 1/10 when not confirmed on time
         MIN_BLOCKS_TO_AUTOCONFIRM = 100,                // we cannot autoconfirm (signature-free) a notarization < 200 blocks old
         MIN_BLOCKS_TO_SIGNCONFIRM = 15,                 // we cannot sign confirm a notarization < 15 blocks old
+        MAX_NOTARIZATION_DELAY_BEFORE_CROSSCHAIN_PAUSE = 1000, // if we go 1000 minutes with no notarization, cross-chain to that chani is paused
 
         MAX_HEADER_PROOFS_PER_PROOF = 25,               // don't use more than this many header proofs in an alternate chain proof tx
+        MAX_HEADER_PROOFS_SIZE = 200000,                // never require more than 200K of evidence for any reason
         MAX_BLOCKS_PER_COMMITMENT_RANGE = 256,          // up to 256 blocks per commitment range
         MAX_BLOCK_RANGES_PER_PROOF = 5,                 // no more than 5 randomly selected ranges to cover any gap length
         NUM_COMMITMENT_BLOCKS_START_OFFSET = 100,       // commitment blocks start this far before the actual start or at 1
@@ -296,23 +298,15 @@ public:
         return MIN_EARNED_FOR_AUTO << 1 + MIN_EARNED_FOR_AUTO;
     }
 
-    inline static int32_t GetAdjustedNotarizationModuloExp(int64_t notarizationBlockModulo,
-                                                           int64_t heightChange,
-                                                           int64_t notarizationsBeforeModuloExtension,
-                                                           int64_t notarizationCount=0)
-    {
-        if (heightChange <= GetBlocksBeforeModuloExtension(notarizationBlockModulo) && notarizationCount <= notarizationsBeforeModuloExtension)
-        {
-            return notarizationBlockModulo;
-        }
-        int32_t nextCheckModulo = notarizationBlockModulo * MODULO_EXTENSION_MULTIPLIER;
-        int32_t nextCheckNotarizationBeforeModulo = notarizationsBeforeModuloExtension << 1;
-        return GetAdjustedNotarizationModuloExp(nextCheckModulo, heightChange, nextCheckNotarizationBeforeModulo, notarizationCount);
-    }
+    static int32_t GetAdjustedNotarizationModuloExp(int64_t notarizationBlockModulo,
+                                                    int64_t fromHeight,
+                                                    int64_t untilHeight,
+                                                    int64_t notarizationsBeforeModuloExtension,
+                                                    int64_t notarizationCount=0);
 
-    inline static int32_t GetAdjustedNotarizationModulo(uint32_t notarizationBlockModulo, uint32_t heightChange, int32_t notarizationCount=0)
+    inline static int32_t GetAdjustedNotarizationModulo(uint32_t notarizationBlockModulo, uint32_t fromHeight, uint32_t untilHeight, int32_t notarizationCount=0)
     {
-        return GetAdjustedNotarizationModuloExp(notarizationBlockModulo, heightChange, NotarizationsBeforeModuloExtension(), notarizationCount);
+        return GetAdjustedNotarizationModuloExp(notarizationBlockModulo, fromHeight, untilHeight, NotarizationsBeforeModuloExtension(), notarizationCount);
     }
 
     enum FLAGS
@@ -1214,30 +1208,6 @@ public:
         return CCrossChainRPCData::GetConditionID(key, systemID);
     }
 
-    static std::string TestnetEthContractUpgradeKeyName()
-    {
-        return "vrsc::system.upgradedata.testnetethcontractupgrade";
-    }
-
-    static uint160 TestnetEthContractUpgradeKey()
-    {
-        static uint160 nameSpace;
-        static uint160 key = CVDXF_Data::GetDataKey(TestnetEthContractUpgradeKeyName(), nameSpace);
-        return key;
-    }
-
-    static std::string TestForkUpgradeKeyName()
-    {
-        return "vrsc::system.upgradedata.pbaastestfork";
-    }
-
-    static uint160 TestForkUpgradeKey()
-    {
-        static uint160 nameSpace;
-        static uint160 key = CVDXF_Data::GetDataKey(TestForkUpgradeKeyName(), nameSpace);
-        return key;
-    }
-
     static std::string OptionalPBaaSUpgradeKeyName()
     {
         return "vrsc::system.upgradedata.optionalpbaasupgrade";
@@ -1259,6 +1229,18 @@ public:
     {
         static uint160 nameSpace;
         static uint160 key = CVDXF_Data::GetDataKey(DisableDeFiKeyName(), nameSpace);
+        return key;
+    }
+
+    static std::string ResetNotarizationModuloKeyName()
+    {
+        return "vrsc::system.upgradedata.resetnotarizationmodulo";
+    }
+
+    static uint160 ResetNotarizationModuloKey()
+    {
+        static uint160 nameSpace;
+        static uint160 key = CVDXF_Data::GetDataKey(ResetNotarizationModuloKeyName(), nameSpace);
         return key;
     }
 

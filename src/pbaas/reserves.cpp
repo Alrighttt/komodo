@@ -598,24 +598,14 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                         if (deepCheck)
                         {
                             CMMRProof &EthProof = ((CChainObject<CPartialTransactionProof> *)transactionProof.evidence.chainObjects[0])->object.txProof;
-                            if (importFromDef.nativeCurrencyID.AuxDestCount() == 0)
+                            if (importFromDef.nativeCurrencyID.TypeNoFlags() != importFromDef.nativeCurrencyID.DEST_ETH)
                             {
-                                if (IsVerusActive() &&
-                                    !IsVerusMainnetActive())
-                                {
-                                    importFromDef.nativeCurrencyID.SetAuxDest(
-                                        CTransferDestination(CTransferDestination::DEST_ETH, ::AsVector(CTransferDestination::DecodeEthDestination(PBAAS_TEST_ETH_CONTRACT))),
-                                        0);
-                                }
-                                else
-                                {
-                                    return state.Error(strprintf("%s: missing contract address in currency definition", __func__));
-                                }
+                                return state.Error(strprintf("%s: missing contract address in currency definition", __func__));
                             }
-                            if (uint160(importFromDef.nativeCurrencyID.GetAuxDest(0).destination) != EthProof.GetNativeAddress())
+                            if (uint160(importFromDef.nativeCurrencyID.destination) != EthProof.GetNativeAddress())
                             {
-                                LogPrintf("%s: Invalid ETH storage address, Found: %s in AuxDest, got %s from proof", __func__,
-                                CTransferDestination::EncodeEthDestination(uint160(importFromDef.nativeCurrencyID.GetAuxDest(0).destination)),
+                                LogPrintf("%s: Invalid ETH storage address, Found: %s, got %s from proof", __func__,
+                                CTransferDestination::EncodeEthDestination(uint160(importFromDef.nativeCurrencyID.destination)),
                                 CTransferDestination::EncodeEthDestination(EthProof.GetNativeAddress()));
                                 return state.Error(strprintf("%s: invalid ETH storage address", __func__));
                             }
@@ -623,7 +613,7 @@ bool CCrossChainImport::GetImportInfo(const CTransaction &importTx,
                     }
                     else
                     {
-                        return state.Error(strprintf("%s: ETH chainproof empty or Auxdest not found", __func__));
+                        return state.Error(strprintf("%s: ETH chainproof empty", __func__));
                     }
                 }
 
@@ -1066,7 +1056,7 @@ CCrossChainImport CCrossChainImport::GetPriorImportFromSystem(const CTransaction
         bool sourceSystemChain = sourceSystemID != ASSETCHAINS_CHAINID;
         CCrossChainImport primaryCCI;
 
-        for (auto &oneIn : tx.vin)
+        for (auto &oneIn : pCurTx->vin)
         {
             primaryCCI = CCrossChainImport();
             cci = CCrossChainImport();
@@ -2534,6 +2524,8 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
     std::vector<CPBaaSNotarization> notarizations;
     CCurrencyValueMap importGeneratedCurrency;
 
+    int32_t outAfterImport = INT32_MAX;
+
     flags |= IS_VALID;
 
     for (int i = 0; i < tx.vout.size(); i++)
@@ -2581,8 +2573,13 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
 
                 case EVAL_IDENTITY_PRIMARY:
                 {
-                    // one identity per transaction, unless we are first block coinbase on a PBaaS chain
-                    // or import
+                    if (IsImport() && outAfterImport <= i)
+                    {
+                        flags &= ~IS_VALID;
+                        flags |= IS_REJECT;
+                        return;
+                    }
+
                     if (p.version < p.VERSION_V3 ||
                         !p.vData.size() ||
                         (solutionVersion < CActivationHeight::ACTIVATE_VERUSVAULT && identity.IsValid()) ||
@@ -2853,18 +2850,9 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
                                 return;
                             }
 
-                            // TODO: POST HARDENING - cleanup with PBAAS_TESTFORK_TIME
-                            // These transactions got through due to reorgs making
-                            static uint256 exemptTestTxId1 = uint256S("04fb5fc582768485ff84df39574d1eabc152ec8e059f2597647bc0c4a4c429ff");
-                            static uint256 exemptTestTxId2 = uint256S("a2070bb46854cf39dce385c830ea2cfe21fd6909a00dc17a33a772b6ab100436");
-                            static uint256 exemptTestTxId3 = uint256S("3690e186320d8f2abd11dc1dd97f4f5b4d7257658aae7eb663baa8065b12d889");
-
                             for (int loop = 0; loop < checkOutputs.size(); loop++)
                             {
-                                if ((tx.vout.size() <= (loop + startingOutput) || checkOutputs[loop] != tx.vout[loop + startingOutput]) &&
-                                    !(tx.GetHash() == exemptTestTxId1 ||
-                                      tx.GetHash() == exemptTestTxId2 ||
-                                      tx.GetHash() == exemptTestTxId3))
+                                if (tx.vout.size() <= (loop + startingOutput) || checkOutputs[loop] != tx.vout[loop + startingOutput])
                                 {
                                     if (LogAcceptCategory("defi"))
                                     {
@@ -2905,6 +2893,7 @@ CReserveTransactionDescriptor::CReserveTransactionDescriptor(const CTransaction 
                                     return;
                                 }
                             }
+                            outAfterImport = startingOutput + checkOutputs.size();
                         }
 
                         importGeneratedCurrency += importedCurrency;
