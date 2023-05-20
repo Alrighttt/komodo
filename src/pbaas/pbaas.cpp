@@ -4953,7 +4953,13 @@ uint32_t CConnectedChains::SetNextBlockTime(uint32_t NextBlockTime)
 uint32_t CConnectedChains::GetNextBlockTime(const CBlockIndex *pindexPrev)
 {
     LOCK(cs_mergemining);
+    static uint32_t height = 0;
     uint32_t nextTimeCandidate = std::max(pindexPrev->GetMedianTimePast()+1, GetAdjustedTime());
+    if (height != pindexPrev->GetHeight())
+    {
+        height = pindexPrev->GetHeight();
+        nextBlockTime = nextTimeCandidate;
+    }
 
     // if sync time is 45 seconds behind or more, use calculated time
     if (nextBlockTime < (nextTimeCandidate - 45))
@@ -5458,11 +5464,8 @@ void CConnectedChains::CheckOracleUpgrades()
 
     if (upgradePBaaSIt != activeUpgradesByKey.end())
     {
-        if (upgradePBaaSIt->second.minDaemonVersion <= GetVerusVersion())
-        {
-            CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV7, upgradePBaaSIt->second.upgradeBlockHeight);
-        }
-        else
+        CConstVerusSolutionVector::activationHeight.SetActivationHeight(CActivationHeight::SOLUTION_VERUSV7, upgradePBaaSIt->second.upgradeBlockHeight);
+        if (upgradePBaaSIt->second.minDaemonVersion > GetVerusVersion())
         {
             stoppingIt = upgradePBaaSIt;
             gracefulStop = "PUBLIC BLOCKCHAINS AS A SERVICE PROTOCOL (PBAAS) 1.0";
