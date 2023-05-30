@@ -51,9 +51,10 @@ extern string PBAAS_USERPASS;
 extern int32_t PBAAS_PORT;
 extern std::string VERUS_CHAINNAME;
 
-//uint32_t PBAAS_TESTFORK2_TIME = 1684210692;     // Lex test network
-//uint32_t PBAAS_TESTFORK2_TIME = 1679300000;     // Asher test network
 uint32_t PBAAS_TESTFORK2_TIME = 1684281600;
+uint32_t PBAAS_TESTFORK3_TIME = 1685379600;
+uint32_t PBAAS_MAINDEFI3_HEIGHT = 2553500;
+uint32_t PBAAS_ENFORCE_CORRECT_EVIDENCE_TIME = 1684359650;
 
 //
 // Exception thrown on connection error.  This error is used to determine
